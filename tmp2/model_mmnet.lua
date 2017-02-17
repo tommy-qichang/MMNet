@@ -38,32 +38,48 @@ function conv_relu_layers(fromopt, toopt,gpuid) -- two convolution/relu layers f
 --    local zStride = toopt.zs
     local model = nn.Sequential()
     if gpuid and gpuid[1] then
+
+        local submodel = nn.Sequential()
         if fromopt.down then
-            model:add(wrapGPU(nn.VolumetricConvolution(from, fromopt.down, 1, 1, 1, 1, 1, 1, 0, 0, 0),gpuid[1]))
+            submodel:add(wrapGPU(nn.VolumetricConvolution(from, fromopt.down, 1, 1, 1, 1, 1, 1, 0, 0, 0),gpuid[1]))
             from = fromopt.down
         end
-        model:add(wrapGPU(nn.VolumetricConvolution(from, to, 3, 3, 3, 1, 1, 1, 1, 1, 1),gpuid[1])) -- from->to, pad 1, same size
+        submodel:add(wrapGPU(nn.VolumetricConvolution(from, to, 3, 3, 3, 1, 1, 1, 1, 1, 1),gpuid[1])) -- from->to, pad 1, same size
+
+        if toopt.bn then submodel:add(wrapGPU(nn.VolumetricBatchNormalization(to),gpuid[3])) end
+        if toopt.leaky then submodel:add(wrapGPU(nn.LReLU(toopt.leaky, true),gpuid[3])) else model:add(nn.ReLU(true)) end
+        if toopt.dropout then submodel:add(wrapGPU(nn.Dropout(toopt.dropout),gpuid[3])) end
+
+        model:add(submodel);
     else
         if fromopt.down then
             model:add(nn.VolumetricConvolution(from, fromopt.down, 1, 1, 1, 1, 1, 1, 0, 0, 0))
             from = fromopt.down
         end
         model:add(nn.VolumetricConvolution(from, to, 3, 3, 3, 1, 1, 1, 1, 1, 1)) -- from->to, pad 1, same size
+        if toopt.bn then model:add(nn.VolumetricBatchNormalization(to)) end
+        if toopt.leaky then model:add(nn.LReLU(toopt.leaky, true)) else model:add(nn.ReLU(true)) end
+        if toopt.dropout then model:add(nn.Dropout(toopt.dropout)) end
     end
 
-    if toopt.bn then model:add(nn.VolumetricBatchNormalization(to)) end
-    if toopt.leaky then model:add(nn.LReLU(toopt.leaky, true)) else model:add(nn.ReLU(true)) end
-    if toopt.dropout then model:add(nn.Dropout(toopt.dropout)) end
 
     if gpuid and gpuid[2] then
-        model:add(wrapGPU(nn.VolumetricConvolution(to, to, 3, 3, 3, 1, 1, 1, 1, 1, 1),gpuid[2])) -- from->to, pad 1, same size
+
+        local submodel = nn.Sequential()
+        submodel:add(wrapGPU(nn.VolumetricConvolution(to, to, 3, 3, 3, 1, 1, 1, 1, 1, 1),gpuid[2])) -- from->to, pad 1, same size
+        if toopt.bn then submodel:add(wrapGPU(nn.VolumetricBatchNormalization(to),gpuid[3])) end
+        if toopt.leaky then submodel:add(wrapGPU(nn.LReLU(toopt.leaky, true),gpuid[3])) else model:add(nn.ReLU(true)) end
+        if toopt.dropout then submodel:add(wrapGPU(nn.Dropout(toopt.dropout),gpuid[3])) end
+        model:add(submodel);
+
     else
         model:add(nn.VolumetricConvolution(to, to, 3, 3, 3, 1, 1, 1, 1, 1, 1)) -- from->to, pad 1, same size
+        if toopt.bn then model:add(nn.VolumetricBatchNormalization(to)) end
+        if toopt.leaky then model:add(nn.LReLU(toopt.leaky, true)) else model:add(nn.ReLU(true)) end
+        if toopt.dropout then model:add(nn.Dropout(toopt.dropout)) end
     end
     --model:add(nn.VolumetricConvolution(to, to, 3, 3, 3, 1, 1, 1, 1, 1, 1)) -- to -> to, pad 1, same size
-    if toopt.bn then model:add(nn.VolumetricBatchNormalization(to)) end
-    if toopt.leaky then model:add(nn.LReLU(toopt.leaky, true)) else model:add(nn.ReLU(true)) end
-    if toopt.dropout then model:add(nn.Dropout(toopt.dropout)) end
+
     return model
 end
 
@@ -128,65 +144,75 @@ end
 --},{512,zs=3,zp=2},bn=true} ):cuda();
 
 
-mp = nn.VolumetricMaxPooling;
-up = nn.VolumetricFullConvolution
+--mp = nn.VolumetricMaxPooling;
+--up = nn.VolumetricFullConvolution
+
+function mp(kT, kW, kH, dT, dW, dH)
+    local mxp = nn.VolumetricMaxPooling(kT, kW, kH, dT, dW, dH);
+    return wrapGPU(mxp,2);
+end
+
+function up(nInputPlane, nOutputPlane, kT, kW, kH, dT, dW, dH)
+    local fc = nn.VolumetricFullConvolution(nInputPlane, nOutputPlane, kT, kW, kH, dT, dW, dH);
+    return wrapGPU(fc,3);
+end
 
 input = nn.Identity()()
-C1 = conv_relu_layers({1},{32,bn=true,dropout=0.3},{1,1})(input)
+C1 = conv_relu_layers({1},{32,bn=true,dropout=0.3},{4,1,1})(input)
 
 MP1 = mp(2,2,2,2,2,2)(C1)
 
-C2 = conv_relu_layers({32},{64,bn=true,dropout=0.4},{2,2})(MP1)
+C2 = conv_relu_layers({32},{64,bn=true,dropout=0.4},{2,2,3})(MP1)
 
 MP2 = mp(2,2,2,2,2,2)(C2)
 
-C3 = conv_relu_layers({64},{128,bn=true,dropout=0.4},{2,2})(MP2)
+C3 = conv_relu_layers({64},{128,bn=true,dropout=0.4},{2,2,3})(MP2)
 
 MP3 = mp(2,2,2,2,2,2)(C3)
 
-C4 = conv_relu_layers({128},{256,bn=true,dropout=0.4},{2,2})(MP3)
+C4 = conv_relu_layers({128},{256,bn=true,dropout=0.4},{2,2,4})(MP3)
 
 MP4 = mp(1,2,2,1,2,2)(C4)
 
-C5 = conv_relu_layers({256},{512,bn=true,dropout=0.4},{2,2})(MP4)
+C5 = conv_relu_layers({256},{512,bn=true,dropout=0.4},{2,2,4})(MP4)
 
 MP5 = mp(1,2,2,1,2,2)(C5)
 
-C6 = conv_relu_layers({512},{1024,bn=true,dropout=0.4},{2,2})(MP5)
+C6 = conv_relu_layers({512},{1024,bn=true,dropout=0.4},{2,2,4})(MP5)
 
 
 UP5 = up(1024,512,1,2,2,1,2,2)(C6)
 
 JT5 = nn.JoinTable(1,4)({C5,UP5})
 
-U5 = conv_relu_layers({1024,down=512},{512,bn=true,dropout=0.4},{2,2})(JT5)
+U5 = conv_relu_layers({1024,down=512},{512,bn=true,dropout=0.4},{2,2,2})(JT5)
 
 UP4 = nn.VolumetricReplicationPadding(0,1,0,1,0,0)(up(512,256,1,2,2,1,2,2)(U5))
 
 JT4 = nn.JoinTable(1,4)({C4,UP4})
 
-U4 = conv_relu_layers({512,down=256},{256,bn=true,dropout=0.4},{2,2})(JT4)
+U4 = conv_relu_layers({512,down=256},{256,bn=true,dropout=0.4},{2,2,2})(JT4)
 
 UP3 = up(256,128,2,2,2,2,2,2)(U4)
 
 JT3 = nn.JoinTable(1,4)({C3,UP3})
 
-U3 = conv_relu_layers({256,down=128},{128,bn=true,dropout=0.4},{2,2})(JT3)
+U3 = conv_relu_layers({256,down=128},{128,bn=true,dropout=0.4},{2,2,2})(JT3)
 
 UP2 = up(128,64,2,2,2,2,2,2)(U3)
 
 JT2 = nn.JoinTable(1,4)({C2,UP2})
 
-U2 = conv_relu_layers({128,down=64},{64,bn=true,dropout=0.4},{2,2})(JT2)
+U2 = conv_relu_layers({128,down=64},{64,bn=true,dropout=0.4},{2,2,2})(JT2)
 
 UP1 = up(64,32,2,2,2,2,2,2)(U2)
 
 JT1 = nn.JoinTable(1,4)({C1,UP1})
 
-U1 = conv_relu_layers({64,down=32},{32,bn=true,dropout=0.4},{3,4})(JT1)
+U1 = conv_relu_layers({64,down=32},{32,bn=true,dropout=0.4},{3,4,4})(JT1)
 
---model = nn.gModule({input},{wrapGPU(nn.VolumetricConvolution(32,2, 3,3,3, 1,1,1,1,1,1),3)(U1)});
-model = nn.gModule({input},{U1});
+model = nn.gModule({input},{wrapGPU(nn.VolumetricConvolution(32,2, 1,1,1, 1,1,1,0,0,0),1)(U1)});
+--model = nn.gModule({input},{U1});
 
 graph.dot(model.fg,'vnet','vnet');
 
@@ -196,7 +222,10 @@ model = model:cuda();
 collectgarbage();
 input = torch.CudaTensor(1,1,40,200,200);
 result = model:forward(input);
-result:size()
+collectgarbage();
+target = torch.CudaTensor(1,2,40,200,200):fill(0);
+model:backward(result,target);
+print(result:size());
 getMemStats()
 collectgarbage();
 
