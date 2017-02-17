@@ -33,7 +33,7 @@ function storeAll_MMNet(id)
     
     function[scanData] = storeAllImage(list,padding)
         scanNumber = size(list,1);
-        scanData = uint8(zeros(scanNumber,(40+padding*2),200,200));
+        scanData = uint8(zeros(scanNumber,1,(40+padding*2),200,200));
         for i=1:scanNumber
             scanId = list(i);
             scanPath = strcat(imageRootPath,'/',scanId(1),'/imgs/*.jpeg');
@@ -48,7 +48,7 @@ function storeAll_MMNet(id)
                     scanImg = scanImg(:,:,2);
                 end
                 scanImg = imresize(scanImg,[200 200]);
-                scanData(i,(padding+j),:,:) = scanImg;
+                scanData(i,:,(padding+j),:,:) = scanImg;
                 
             end
             
