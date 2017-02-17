@@ -1,10 +1,18 @@
+
 clear ; close all; clc
-storeDataVoxelwised('1');
-clear ; close all; clc
-storeDataVoxelwised('2');
+storeScansAllInOne('3')
 clear ; close all; clc
 storeDataVoxelwised('3');
 clear ; close all; clc
-storeDataVoxelwised('4');
+storeScansAllInOne('4')
 clear ; close all; clc
-storeDataVoxelwised('5');
+storeDataVoxelwised('4');
+
+% clear ; close all; clc
+% storeDataVoxelwised('1');
+% clear ; close all; clc
+% storeDataVoxelwised('2');
+% clear ; close all; clc
+% storeDataVoxelwised('3');
+% clear ; close all; clc
+% storeDataVoxelwised('4');

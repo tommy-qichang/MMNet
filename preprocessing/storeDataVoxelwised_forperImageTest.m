@@ -1,4 +1,4 @@
-function storeDataVoxelwised(i)
+function storeDataVoxelwised_forperImageTest(i)
     savePrefix=strcat('0112_25^3_',i);
     outputPrefix = strcat('0113_25^3_',i);
 %     cropSizeX = 50;

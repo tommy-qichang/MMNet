@@ -62,7 +62,7 @@ function Provider:load()
         self.dataset = {};
     end
 
-    local stamp = '0112_25^3_'..id;
+    local stamp = '0113_25^3_'..id;
     local trNegDataPath = 'preprocessing/clean_data/patch_train_neg_'..stamp..'.mat';
     local trPosDataPath = 'preprocessing/clean_data/patch_train_pos_'..stamp..'.mat';
 

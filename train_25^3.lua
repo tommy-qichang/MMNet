@@ -1,5 +1,5 @@
 --
---
+--CUDA_VISIBLE_DEVICES=1 th -i train_25^3.lua  --backend=cudnn --save=training/25^3_i2_r0.05_val5 --model=model_25^3 --batchSize=64 --learningRate=0.05 --balanceWeight=1
 -- User: changqi
 -- Date: 3/14/16
 -- Time: 12:25 PM
@@ -167,7 +167,7 @@ function train()
             confusion:batchAdd(outputs, targets);
             evaln = evaln+1;
             if evaln%500 == 0 then
-                optimState.learningRate = optimState.learningRate*0.97;
+                optimState.learningRate = optimState.learningRate*0.95;
             end
             localCost[t] = f;
 
