@@ -13,7 +13,7 @@ require 'optim'
 require 'nngraph'
 
 
---nngraph.setDebug(true)
+nngraph.setDebug(true)
 
 cutorch.setKernelPeerToPeerAccess(true)
 if not opt then
@@ -114,58 +114,60 @@ local function up(nInputPlane, nOutputPlane, kT, kW, kH, dT, dW, dH)
 end
 
 local input = nn.Identity()()
-local C1 = conv_relu_layers({1},{32,bn=true,dropout=0.3},{4,1,1})(input)
+local C1 = conv_relu_layers({1},{64,bn=true,dropout=0.3},{4,1,1})(input)
 
 local MP1 = mp(2,2,2,2,2,2)(C1)
 
-local C2 = conv_relu_layers({32},{64,bn=true,dropout=0.4},{2,2,3})(MP1)
+local C2 = conv_relu_layers({64},{128,bn=true,dropout=0.4},{2,2,3})(MP1)
 
 local MP2 = mp(2,2,2,2,2,2)(C2)
 
-local C3 = conv_relu_layers({64},{128,bn=true,dropout=0.4},{2,2,3})(MP2)
+local C3 = conv_relu_layers({128},{256,bn=true,dropout=0.4},{2,2,3})(MP2)
 
 local MP3 = mp(2,2,2,2,2,2)(C3)
 
-local C4 = conv_relu_layers({128},{256,bn=true,dropout=0.4},{2,2,4})(MP3)
+local C4 = conv_relu_layers({256},{512,bn=true,dropout=0.4},{2,2,4})(MP3)
 
 local MP4 = mp(1,2,2,1,2,2)(C4)
 
-local C5 = conv_relu_layers({256},{512,bn=true,dropout=0.4},{2,2,4})(MP4)
+local C5 = conv_relu_layers({512},{1024,bn=true,dropout=0.4},{2,2,4})(MP4)
 
-local MP5 = mp(1,2,2,1,2,2)(C5)
+--local MP5 = mp(1,2,2,1,2,2)(C5)
 
-local C6 = conv_relu_layers({512},{1024,bn=true,dropout=0.4},{2,2,4})(MP5)
+--local C6 = conv_relu_layers({512},{1024,bn=true,dropout=0.4},{2,2,4})(MP5)
 
 
-local UP5 = up(1024,512,1,2,2,1,2,2)(C6)
+--local UP5 = up(1024,512,1,2,2,1,2,2)(C6)
 
-local JT5 = nn.JoinTable(1,4)({C5,UP5})
+--local JT5 = nn.JoinTable(1,4)({C5,UP5})
 
-local U5 = conv_relu_layers({1024,down=512},{512,bn=true,dropout=0.4},{2,2,2})(JT5)
+--local U5 = conv_relu_layers({1024,down=512},{512,bn=true,dropout=0.4},{2,2,2})(JT5)
 
-local UP4 = nn.VolumetricReplicationPadding(0,1,0,1,0,0)(up(512,256,1,2,2,1,2,2)(U5))
+--local UP4 = nn.VolumetricReplicationPadding(0,1,0,1,0,0)(up(512,256,1,2,2,1,2,2)(U5))
+
+local UP4 = up(1024,512,1,2,2,1,2,2)(C5)
 
 local JT4 = nn.JoinTable(1,4)({C4,UP4})
 
-local U4 = conv_relu_layers({512,down=256},{256,bn=true,dropout=0.4},{2,2,2})(JT4)
+local U4 = conv_relu_layers({1024,down=512},{512,bn=true,dropout=0.4},{2,2,2})(JT4)
 
-local UP3 = up(256,128,2,2,2,2,2,2)(U4)
+local UP3 = nn.VolumetricReplicationPadding(0,1,0,1,0,0)(up(512,256,2,2,2,2,2,2)(U4))
 
 local JT3 = nn.JoinTable(1,4)({C3,UP3})
 
-local U3 = conv_relu_layers({256,down=128},{128,bn=true,dropout=0.4},{2,2,2})(JT3)
+local U3 = conv_relu_layers({512,down=256},{256,bn=true,dropout=0.4},{2,2,2})(JT3)
 
-local UP2 = up(128,64,2,2,2,2,2,2)(U3)
+local UP2 = up(256,128,2,2,2,2,2,2)(U3)
 
 local JT2 = nn.JoinTable(1,4)({C2,UP2})
 
-local U2 = conv_relu_layers({128,down=64},{64,bn=true,dropout=0.4},{2,2,2})(JT2)
+local U2 = conv_relu_layers({256,down=128},{128,bn=true,dropout=0.4},{4,4,2})(JT2)
 
-local UP1 = up(64,32,2,2,2,2,2,2)(U2)
+local UP1 = up(128,64,2,2,2,2,2,2)(U2)
 
 local JT1 = nn.JoinTable(1,4)({C1,UP1})
 
-local U1 = conv_relu_layers({64,down=32},{32,bn=true,dropout=0.4},{3,4,4})(JT1)
+local U1 = conv_relu_layers({128,down=64},{64,bn=true,dropout=0.4},{3,4,2})(JT1)
 
 model = nn.gModule({input},{wrapGPU(nn.VolumetricConvolution(32,2, 1,1,1, 1,1,1,0,0,0),1)(U1)});
 
@@ -179,15 +181,15 @@ model = model:cuda();
 nn_init(model);
 collectgarbage();
 
---[[input = torch.CudaTensor(1,1,40,200,200);
+input = torch.CudaTensor(1,1,40,164,164);
 result = model:forward(input);
-target = torch.CudaTensor(1,2,40,200,200):fill(0);
-model:backward(result,target);
+--target = torch.CudaTensor(1,2,32,200,200):fill(0);
+--model:backward(result,target);
 print(result:size());
 getMemStats()
 collectgarbage();
 
-]]
+
 
 
 --graph.dot(model.fg,'model3d','u-net3d');

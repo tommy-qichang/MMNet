@@ -61,7 +61,7 @@ function storeAll_MMNet(id)
     function[scanData]= storeAllSegmenttion(list,padding)
         
         scanNumber = size(list,1);
-        scanData = uint8(zeros(scanNumber,(40+padding*2),200,200));
+        scanData = uint8(zeros(scanNumber,1,(40+padding*2),200,200));
         for i=1:scanNumber
             scanId = list(i);
             scanPath = strcat(annotationPath,'/',scanId(1),'/*.png');
@@ -79,7 +79,7 @@ function storeAll_MMNet(id)
                 segMap = imresize(segMap,[200 200],'nearest');
                 
                 currendId = str2double(imageId(end-6:end-4));
-                scanData(i,(padding+currendId),:,:) = segMap;
+                scanData(i,:,(padding+currendId),:,:) = segMap;
                 
             end
             

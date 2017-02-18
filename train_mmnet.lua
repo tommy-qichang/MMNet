@@ -13,12 +13,12 @@ require 'mattorch'
 local matio = require 'matio'
 require 'xlua';
 require 'hdf5'
-dofile './provider_25^3_fcnn.lua'
+dofile './provider_mmnet.lua'
 local class = require 'class'
 local c = require 'trepl.colorize'
 
 opt = lapp [[
-   -s,--save                  (default "training/25^3")      subdirectory to save logs
+   -s,--save                  (default "training/mmnet_i1_r100")      subdirectory to save logs
    -b,--batchSize             (default 45)          batch size
    -r,--learningRate          (default 0.1)        learning rate
    --learningRateDecay        (default 1e-7)      learning rate decay
@@ -33,11 +33,15 @@ opt = lapp [[
    --multiGPU                 (default true)    if it's multiGPU
    --balanceWeight              (default 1)     criterion balance weight
    --testFolder                 (default img_1)     test folder name
+   --valId                    (default 1)    cross validation index
 ]]
 
 print(opt)
 ------------------------------------ loading data----------------------------------------
 print(c.blue '==>' .. ' loading data')
+provider = providerFactory(opt.valId);
+provider.dataset.trainData.data = provider.dataset.trainData.data:float()
+provider.dataset.testData.data = provider.dataset.testData.data:float()
 --provider = torch.load('provider.t7')
 
 ------------------------------------ configuring----------------------------------------
@@ -60,9 +64,6 @@ end
 
 
 ----------------------------------- load exist model -------------------------------------
-
-
-
 
 
 if opt.backend == 'cudnn' then
@@ -98,16 +99,8 @@ optimState = {
     learningRateDecay = opt.learningRateDecay,
 }
 
-local pLen = #parameters
-local function makeOptimStatesTable (opt)
-    local t = {}
-    for k = 1, pLen do
-        t[k] = tablex.deepcopy(opt)
-    end
-    return t;
-end
-optimStatesTable = makeOptimStatesTable(optimState);
 
+evaln = 1;
 cost = {}
 
 
@@ -173,10 +166,10 @@ function train()
     epoch = epoch or 1;
 
     -- drop learning rate every "epoch_step" epochs  ?
-    if epoch % opt.epoch_step == 0 then
-        optimState.learningRate = optimState.learningRate / 2
-        print(c.blue '==>' .. " decrease LR: " ..optimState.learningRate .. ']')
-    end
+--    if epoch % opt.epoch_step == 0 then
+--        optimState.learningRate = optimState.learningRate / 2
+--        print(c.blue '==>' .. " decrease LR: " ..optimState.learningRate .. ']')
+--    end
     -- update negative set every 6 epochs.
 
     print(c.blue '==>' .. " online epoch # " .. epoch .. ' [batchSize = ' .. opt.batchSize .. ']')
@@ -196,16 +189,28 @@ function train()
         local inputs = provider.dataset.trainData.data:index(1, v);
         targets:copy(provider.dataset.trainData.label:index(1, v));
 
+        local feval = function(x)
+            if x ~= parameters then parameters:copy(x) end
 
-        model:zeroGradParameters();
+            gradParameters:zero();
+            local outputs = model:forward(inputs:float())
+            local f = criterion:forward(outputs, targets)
 
-        local outputs = model:forward(inputs:float())
-        local f = criterion:forward(outputs, targets)
-
-        local df = criterion:backward(outputs, targets)
-        model:backward(inputs, df)
+            local df = criterion:backward(outputs, targets)
+            model:backward(inputs, df)
 
 
+            confusion:batchAdd(outputs, targets);
+            evaln = evaln+1;
+            if evaln%500 == 0 then
+                optimState.learningRate = optimState.learningRate*0.95;
+            end
+            localCost[t] = f;
+
+            return f, gradParameters;
+        end
+
+        local x, fx = optim.sgd(feval, parameters, optimState);
 
 --        require('mobdebug').start(nill,8222)
 --        --2,2,56,512,512 -> 2*56*512*512 , 2
@@ -216,7 +221,7 @@ function train()
 --        local flatTarget = targets:reshape(targets:size(1)*
 --                targets:size(2)*targets:size(3)*targets:size(4))
 
---
+
 --        for pk,pv in pairs(parameters) do
 --            if pk>=0 then
 --                local gradParameter = gradParameters[pk];
@@ -231,7 +236,7 @@ function train()
 --
 --        end
 
-        cutorch.setDevice(1);
+--        cutorch.setDevice(1);
 
 
 --        if(epoch % 2 == 0) then
@@ -239,7 +244,6 @@ function train()
 --
 --        end
 
-        localCost[t] = f;
 
         local innerToc = torch.toc(innerTic);
         local function printInfo()
@@ -255,9 +259,6 @@ function train()
         if t % opt.log_interval == 0 then
             printInfo();
         end
-
-
-
 
     end
 

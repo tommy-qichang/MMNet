@@ -86,8 +86,8 @@ function Provider:load()
     self.dataset.trainData.label = trLabel.trLabel:permute(5,4,3,2,1):float();
 
 
-    local teDataPath = 'preprocessing/results/all_testimg_'..stamp..'.mat';
-    local teLabelPath = 'preprocessing/results/all_testlabel_'..stamp..'.mat';
+    local teDataPath = 'preprocessing/clean_data/all_testimg_'..stamp..'.mat';
+    local teLabelPath = 'preprocessing/clean_data/all_testlabel_'..stamp..'.mat';
 
     print ('==> begin load tePosData ');
     local teData = mattorch.load(teDataPath);
@@ -127,19 +127,20 @@ function Provider:normalize()
     testData.std = std;
 end
 
+function providerFactory(id)
+    local provider = Provider(id);
+    local saved = provider:load();
+    if saved then
+        provider:normalize();
+        print '==> save provider.t7'
+        torch.save(datasetPath, provider);
+    else
+        print '==> already saved do nothing.'
+    end
 
-provider = Provider();
-saved = provider:load();
-if needNorm == true then
-    provider:normalize();
+    return provider;
 end
 
-if saved then
-    print '==> save provider.t7'
-    torch.save(datasetPath, provider);
-else
-    print '==> already saved do nothing.'
-end
 
 
 
