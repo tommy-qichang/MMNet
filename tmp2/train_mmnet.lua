@@ -9,8 +9,8 @@ require 'optim'
 require 'cunn'
 require 'cudnn'
 require 'image';
---require 'mattorch'
-matio = require 'matio'
+require 'mattorch'
+--matio = require 'matio'
 require 'xlua';
 require 'hdf5'
 dofile './provider_mmnet.lua'
@@ -25,9 +25,9 @@ opt = lapp [[
    --weightDecay              (default 0.0005)      weightDecay
    -m,--momentum              (default 0.09)         momentum
    --epoch_step               (default 25)          epoch step
-   --model                    (default train_25^3)     model name
+   --model                    (default model_mmnet)     model name
    --max_epoch                (default 300)           maximum number of iterations
-   --backend                  (default cudnn)            backend
+   --backend                  (default nn)            backend
    -i,--log_interval          (default 5)           show log interval
    --modelPath                (default training/model.net) exist model
    --multiGPU                 (default true)    if it's multiGPU
@@ -112,47 +112,6 @@ evaln = 1;
 cost = {}
 
 
-function flat3DMatrix(matrix)
-    dim = matrix:nDimension();
-    size = matrix:size();
-    batchSize = 1;
-    for i=1,(dim-2) do
-        batchSize = batchSize*size[i]
-    end
-    return matrix:reshape(batchSize,size[dim-1],size[dim]);
-
-end
-
-function testOut(inputs,targets,result,type,tidx)
-    --    targets = provider.dataset.testData.label:narrow(1, i, idxEnd or bs):squeeze(2);
-    --    result = result:clone();
-    predictResult = torch.Tensor(result:size());
-    predictResult:copy(result);
-    predictResult = predictResult:select(2,2):csub(predictResult:select(2,1)):squeeze(2);
-    predictResult = flat3DMatrix(predictResult):double();
-
-    predictTarget = flat3DMatrix(targets):double();
-
-    origInput = flat3DMatrix(inputs):double();
-
-    jLen = predictResult:size(1);
-    paths.mkdir(paths.concat(opt.save,opt.testFolder,epoch));
-    predictTarget = predictTarget-1;
-    --        if i==1 then
-    for j = 1,jLen do
-        if predictTarget:select(1,j):max() ~= 0 then
-            minValue = -math.min(predictResult:select(1,j):min(),0) + 1;
-            image.save(paths.concat(opt.save,opt.testFolder,epoch,type..'_'..tidx..'_'..j..'_'..epoch..'_test'..'.png'),image.y2jet(predictResult:select(1,j):add(minValue)));
-            image.save(paths.concat(opt.save,opt.testFolder,epoch,type..'_'..tidx..'_'..j..'_'..epoch..'_orig'..'.png'), origInput:select(1,j):squeeze());
-            image.save(paths.concat(opt.save,opt.testFolder,epoch,type..'_'..tidx..'_'..j..'_'..epoch..'_label'..'.png'),predictTarget:select(1,j):squeeze());
-
-        end
-        --            matio.save(paths.concat(opt.save,'imgs',((i-1)*bs+j)..'_test'..epoch..'.mat'),results:select(1,j));
-    end
-    --        end
-
-end
-
 function plotCost(avgWidth)
     if not gnuplot then
         require 'gnuplot'
@@ -162,8 +121,7 @@ function plotCost(avgWidth)
     costX = torch.range(1, #cost)
     --
     nAvg = (#cost - #cost%avgWidth)/avgWidth
-
-    gnuplot.epsfigure(paths.concat(opt.save,'fcnn_train.eps'));
+    gnuplot.epsfigure(paths.concat(opt.save,'mmnet_cost.eps'));
     gnuplot.plot({'Mini batch cost',costX, costT})
     gnuplot.plotflush();
 end
@@ -174,10 +132,10 @@ function train()
     epoch = epoch or 1;
 
     -- drop learning rate every "epoch_step" epochs  ?
-    --    if epoch % opt.epoch_step == 0 then
-    --        optimState.learningRate = optimState.learningRate / 2
-    --        print(c.blue '==>' .. " decrease LR: " ..optimState.learningRate .. ']')
-    --    end
+--    if epoch % opt.epoch_step == 0 then
+--        optimState.learningRate = optimState.learningRate / 2
+--        print(c.blue '==>' .. " decrease LR: " ..optimState.learningRate .. ']')
+--    end
     -- update negative set every 6 epochs.
 
     print(c.blue '==>' .. " online epoch # " .. epoch .. ' [batchSize = ' .. opt.batchSize .. ']')
@@ -200,11 +158,11 @@ function train()
         model:zeroGradParameters();
         --if x ~= parameters then parameters:copy(x) end
         --gradParameters:zero();
-        outputs = model:forward(inputs:float())
-        f = criterion:forward(outputs, targets)
+        outputs = model:forward(inputs:float());
+        f = criterion:forward(outputs, targets);
 
-        df = criterion:backward(outputs, targets)
-        model:backward(inputs, df)
+        df = criterion:backward(outputs, targets);
+        model:backward(inputs, df);
 
         _,predictions = outputs:max(2);
         predictions = predictions:view(-1);
@@ -252,7 +210,7 @@ function train()
 
     avgCost = localCost:sum()/localCost:nElement();
     table.insert(cost,avgCost);
-    plotCost(opt.batchSize);
+    --plotCost(opt.batchSize);
     print(c.blue '==>' .. 'Avg Cost for this round:'..avgCost);
 
     confusion:updateValids();
@@ -287,7 +245,7 @@ function test()
             bs = len - i;
         end
         --        print (('-->testDataSize:%s;i:%s;bs:%s;idxEnd:%s;idxEnd or bs: %s'):format(provider.dataset.testData.data:size(1),i,bs,idxEnd,idxEnd or bs))
-        --        outputs = model:forward(provider.dataset.testData.data:narrow(1, i, idxEnd or bs))
+--        outputs = model:forward(provider.dataset.testData.data:narrow(1, i, idxEnd or bs))
         inputs = provider.dataset.testData.data:narrow(1, i, bs);
         outputs = model:forward(inputs)
 
@@ -302,13 +260,13 @@ function test()
 
         collectgarbage();
 
-        --        if(allResults)then
-        --            allResults = torch.cat(allResults,predictResult:double(),1);
-        --            allTargets = torch.cat(allTargets,predictTarget:double(),1);
-        --        else
-        --            allResults = predictResult:double();
-        --            allTargets = predictTarget:double();
-        --        end
+--        if(allResults)then
+--            allResults = torch.cat(allResults,predictResult:double(),1);
+--            allTargets = torch.cat(allTargets,predictTarget:double(),1);
+--        else
+--            allResults = predictResult:double();
+--            allTargets = predictTarget:double();
+--        end
     end
 
     confusion:updateValids()
@@ -353,39 +311,39 @@ function test()
 
 
     --    rocData = {};
-    --    rocData['oneresult'] = allResults;
-    --    rocData['onetarget'] = allTargets;
+--    rocData['oneresult'] = allResults;
+--    rocData['onetarget'] = allTargets;
 
-    --    resultPath = paths.concat(opt.save,'rocData','fcnn_rocdata_epo_result'..epoch..'.mat');
-    --    targetPath = paths.concat(opt.save,'rocData','fcnn_rocdata_epo_target'..epoch..'.mat');
-    --    print('=====> save roc data:'..resultPath);
-    --    paths.mkdir(paths.concat(opt.save,'rocData'));
+--    resultPath = paths.concat(opt.save,'rocData','fcnn_rocdata_epo_result'..epoch..'.mat');
+--    targetPath = paths.concat(opt.save,'rocData','fcnn_rocdata_epo_target'..epoch..'.mat');
+--    print('=====> save roc data:'..resultPath);
+--    paths.mkdir(paths.concat(opt.save,'rocData'));
 
-    --    matio.save(resultPath,rocData.oneresult);
-    --    matio.save(targetPath,rocData.onetarget);
+--    matio.save(resultPath,rocData.oneresult);
+--    matio.save(targetPath,rocData.onetarget);
 
-    --    mattorch.save(resultPath,rocData.oneresult);
-    --    mattorch.save(targetPath,rocData.onetarget);
-
-
-    --    resultPath = paths.concat(opt.save,'rocData','fcnn_rocdata_epo_result'..epoch..'.h5');
-    --    targetPath = paths.concat(opt.save,'rocData','fcnn_rocdata_epo_target'..epoch..'.h5');
-    --
-    --    myFile = hdf5.open(resultPath, 'w')
-    --    myFile:write('/result', rocData.oneresult);
-    --    myFile:write('/target', rocData.onetarget);
-    --    myFile:close()
+--    mattorch.save(resultPath,rocData.oneresult);
+--    mattorch.save(targetPath,rocData.onetarget);
 
 
-    --    rocData = nil;
-    --    collectgarbage();
-    --    print('=====> finish saving prediction,start saving model...');
+--    resultPath = paths.concat(opt.save,'rocData','fcnn_rocdata_epo_result'..epoch..'.h5');
+--    targetPath = paths.concat(opt.save,'rocData','fcnn_rocdata_epo_target'..epoch..'.h5');
+--
+--    myFile = hdf5.open(resultPath, 'w')
+--    myFile:write('/result', rocData.oneresult);
+--    myFile:write('/target', rocData.onetarget);
+--    myFile:close()
+
+
+--    rocData = nil;
+--    collectgarbage();
+--    print('=====> finish saving prediction,start saving model...');
     -- save model every 5 epochs
-    --    if epoch % 5 == 0 then
-    filename = paths.concat(opt.save, 'model_'..epoch..'.net')
-    print('==> saving model to ' .. filename)
-    torch.save(filename, model:get(2):clearState())
-    --    end
+--    if epoch % 5 == 0 then
+        filename = paths.concat(opt.save, 'model_'..epoch..'.net')
+        print('==> saving model to ' .. filename)
+        torch.save(filename, model:get(2):clearState())
+--    end
 
     confusion:zero()
 end

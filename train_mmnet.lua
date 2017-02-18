@@ -1,5 +1,5 @@
 --
---
+--th -i train_mmnet.lua --save=training/mmnet_i1_r0.1b1000_val1 --balanceWeight=1000 --valId=1 --learningRate=0.1
 -- User: changqi
 -- Date: 3/14/16
 -- Time: 12:25 PM
@@ -10,7 +10,7 @@ require 'cunn'
 require 'cudnn'
 require 'image';
 require 'mattorch'
-local matio = require 'matio'
+--local matio = require 'matio'
 require 'xlua';
 require 'hdf5'
 dofile './provider_mmnet.lua'
@@ -19,20 +19,19 @@ local c = require 'trepl.colorize'
 
 opt = lapp [[
    -s,--save                  (default "training/mmnet_i1_r100")      subdirectory to save logs
-   -b,--batchSize             (default 45)          batch size
+   -b,--batchSize             (default 1)          batch size
    -r,--learningRate          (default 0.1)        learning rate
    --learningRateDecay        (default 1e-7)      learning rate decay
    --weightDecay              (default 0.0005)      weightDecay
    -m,--momentum              (default 0.09)         momentum
-   --epoch_step               (default 25)          epoch step
-   --model                    (default train_25^3)     model name
+   --epoch_step               (default 10)          epoch step
+   --model                    (default model_mmnet)     model name
    --max_epoch                (default 300)           maximum number of iterations
    --backend                  (default nn)            backend
    -i,--log_interval          (default 5)           show log interval
    --modelPath                (default training/model.net) exist model
    --multiGPU                 (default true)    if it's multiGPU
    --balanceWeight              (default 1)     criterion balance weight
-   --testFolder                 (default img_1)     test folder name
    --valId                    (default 1)    cross validation index
 ]]
 
@@ -81,7 +80,7 @@ parameters, gradParameters = model:parameters()
 print('Will save at ' .. opt.save)
 paths.mkdir(opt.save)
 testLogger = optim.Logger(paths.concat(opt.save, 'test.log'))
-testLogger:setNames { '% mean class accuracy (train set)', '% mean class accuracy (test set)' }
+testLogger:setNames  { 'train 1st acc ', 'train 2ed acc' , 'test 1st acc', 'test 2ed acc','learning rate', 'costs'}
 testLogger.showPlot = false
 
 ------------------------------------ set criterion---------------------------------------
@@ -99,51 +98,18 @@ optimState = {
     learningRateDecay = opt.learningRateDecay,
 }
 
+local pLen = #parameters
+local function makeOptimStatesTable (opt)
+    local t = {}
+    for k = 1, pLen do
+        t[k] = tablex.deepcopy(opt)
+    end
+    return t;
+end
+optimStatesTable = makeOptimStatesTable(optimState);
 
-evaln = 1;
 cost = {}
 
-
-local function flat3DMatrix(matrix)
-    local dim = matrix:nDimension();
-    local size = matrix:size();
-    local batchSize = 1;
-    for i=1,(dim-2) do
-        batchSize = batchSize*size[i]
-    end
-    return matrix:reshape(batchSize,size[dim-1],size[dim]);
-
-end
-
-local function testOut(inputs,targets,result,type,tidx)
-    --    local targets = provider.dataset.testData.label:narrow(1, i, idxEnd or bs):squeeze(2);
---    local result = result:clone();
-    local predictResult = torch.Tensor(result:size());
-    predictResult:copy(result);
-    predictResult = predictResult:select(2,2):csub(predictResult:select(2,1)):squeeze(2);
-    predictResult = flat3DMatrix(predictResult):double();
-
-    local predictTarget = flat3DMatrix(targets):double();
-
-    local origInput = flat3DMatrix(inputs):double();
-
-    local jLen = predictResult:size(1);
-    paths.mkdir(paths.concat(opt.save,opt.testFolder,epoch));
-    predictTarget = predictTarget-1;
-    --        if i==1 then
-    for j = 1,jLen do
-        if predictTarget:select(1,j):max() ~= 0 then
-            local minValue = -math.min(predictResult:select(1,j):min(),0) + 1;
-            image.save(paths.concat(opt.save,opt.testFolder,epoch,type..'_'..tidx..'_'..j..'_'..epoch..'_test'..'.png'),image.y2jet(predictResult:select(1,j):add(minValue)));
-            image.save(paths.concat(opt.save,opt.testFolder,epoch,type..'_'..tidx..'_'..j..'_'..epoch..'_orig'..'.png'), origInput:select(1,j):squeeze());
-            image.save(paths.concat(opt.save,opt.testFolder,epoch,type..'_'..tidx..'_'..j..'_'..epoch..'_label'..'.png'),predictTarget:select(1,j):squeeze());
-
-        end
-        --            matio.save(paths.concat(opt.save,'imgs',((i-1)*bs+j)..'_test'..epoch..'.mat'),results:select(1,j));
-    end
-    --        end
-
-end
 
 function plotCost(avgWidth)
     if not gnuplot then
@@ -155,7 +121,7 @@ function plotCost(avgWidth)
     --
     local nAvg = (#cost - #cost%avgWidth)/avgWidth
 
-    gnuplot.epsfigure(paths.concat(opt.save,'fcnn_train.eps'));
+    gnuplot.epsfigure(paths.concat(opt.save,'mmnet_cost.eps'));
     gnuplot.plot({'Mini batch cost',costX, costT})
     gnuplot.plotflush();
 end
@@ -166,10 +132,10 @@ function train()
     epoch = epoch or 1;
 
     -- drop learning rate every "epoch_step" epochs  ?
---    if epoch % opt.epoch_step == 0 then
---        optimState.learningRate = optimState.learningRate / 2
---        print(c.blue '==>' .. " decrease LR: " ..optimState.learningRate .. ']')
---    end
+    if epoch % opt.epoch_step == 0 then
+        optimState.learningRate = optimState.learningRate / 2
+        print(c.blue '==>' .. " decrease LR: " ..optimState.learningRate .. ']')
+    end
     -- update negative set every 6 epochs.
 
     print(c.blue '==>' .. " online epoch # " .. epoch .. ' [batchSize = ' .. opt.batchSize .. ']')
@@ -189,60 +155,40 @@ function train()
         local inputs = provider.dataset.trainData.data:index(1, v);
         targets:copy(provider.dataset.trainData.label:index(1, v));
 
-        local feval = function(x)
-            if x ~= parameters then parameters:copy(x) end
+        model:zeroGradParameters();
+        --if x ~= parameters then parameters:copy(x) end
+        --gradParameters:zero();
+        local outputs = model:forward(inputs:float())
+        local f = criterion:forward(outputs, targets)
 
-            gradParameters:zero();
-            local outputs = model:forward(inputs:float())
-            local f = criterion:forward(outputs, targets)
+        local df = criterion:backward(outputs, targets)
+        model:backward(inputs, df)
 
-            local df = criterion:backward(outputs, targets)
-            model:backward(inputs, df)
+        local _,predictions = outputs:max(2);
+        predictions = predictions:view(-1);
+        local flatT = targets:view(-1);
+        confusion:batchAdd(predictions, flatT);
+
+--        evaln = evaln+1;
+--        if evaln%500 == 0 then
+--            optimState.learningRate = optimState.learningRate*0.95;
+--        end
+        localCost[t] = f;
 
 
-            confusion:batchAdd(outputs, targets);
-            evaln = evaln+1;
-            if evaln%500 == 0 then
-                optimState.learningRate = optimState.learningRate*0.95;
+        --local x, fx = optim.sgd(feval, parameters, optimState);
+        for pk,pv in pairs(parameters) do
+            if pk>=0 then
+                local gradParameter = gradParameters[pk];
+                cutorch.setDevice(pv:getDevice())
+                local feval = function(x)
+                    return f,gradParameter;
+                end
+                optim.sgd(feval, pv, optimStatesTable[pk]);
             end
-            localCost[t] = f;
-
-            return f, gradParameters;
         end
 
-        local x, fx = optim.sgd(feval, parameters, optimState);
-
---        require('mobdebug').start(nill,8222)
---        --2,2,56,512,512 -> 2*56*512*512 , 2
---        local flatOutput = outputs:permute(2,1,3,4,5);
---        flatOutput = flatOutput:reshape(2,flatOutput:size(1)*
---                flatOutput:size(3)*flatOutput:size(4)*flatOutput:size(5))
---        flatOutput = flatOutput:permute(2,1);
---        local flatTarget = targets:reshape(targets:size(1)*
---                targets:size(2)*targets:size(3)*targets:size(4))
-
-
---        for pk,pv in pairs(parameters) do
---            if pk>=0 then
---                local gradParameter = gradParameters[pk];
---
---                cutorch.setDevice(pv:getDevice())
---                local feval = function(x)
---                    return f,gradParameter;
---                end
---                optim.sgd(feval, pv, optimStatesTable[pk]);
---
---            end
---
---        end
-
---        cutorch.setDevice(1);
-
-
---        if(epoch % 2 == 0) then
---            testOut(inputs,targets,outputs,'train',t);
---
---        end
+        cutorch.setDevice(1);
 
 
         local innerToc = torch.toc(innerTic);
@@ -264,13 +210,19 @@ function train()
 
     local avgCost = localCost:sum()/localCost:nElement();
     table.insert(cost,avgCost);
-    plotCost(opt.batchSize);
+    --plotCost(opt.batchSize);
     print(c.blue '==>' .. 'Avg Cost for this round:'..avgCost);
 
+    confusion:updateValids();
+    print(c.red('Train accuracy: ' .. c.cyan '%.2f' .. ' %%\t time: %.2f s, learning rate: %.6f'):format(confusion.totalValid * 100, torch.toc(tic),optimState.learningRate));
+    print(confusion);
+    train_acc = confusion.totalValid * 100
+    firstClassAcc = confusion.valids[1];
+    secondClassAcc = confusion.valids[2];
+    confusion:zero()
 
     epoch = epoch + 1;
     collectgarbage();
-
 
 end
 
@@ -281,7 +233,7 @@ function test()
     model:evaluate()
     collectgarbage();
     print(c.blue '==>' .. " testing")
-    local bs = 2
+    local bs = 1
     local len = provider.dataset.testData.data:size(1);
     local allTargets = nil;
     local allResults = nil;
@@ -289,9 +241,6 @@ function test()
 
     for i = 1, len, bs do
         xlua.progress(i, len)
-        if (i + bs) > len then
-            bs = len - i;
-        end
         --        print (('-->testDataSize:%s;i:%s;bs:%s;idxEnd:%s;idxEnd or bs: %s'):format(provider.dataset.testData.data:size(1),i,bs,idxEnd,idxEnd or bs))
 --        local outputs = model:forward(provider.dataset.testData.data:narrow(1, i, idxEnd or bs))
         local inputs = provider.dataset.testData.data:narrow(1, i, bs);
@@ -300,37 +249,72 @@ function test()
         collectgarbage();
         local targets = provider.dataset.testData.label:narrow(1, i, bs):squeeze(2);
 
+        local _,predictions = outputs:max(2);
+        predictions = predictions:view(-1);
+        local flatT = targets:view(-1);
+        confusion:batchAdd(predictions, flatT);
 
-        testOut(inputs,targets,outputs,'test',i);
-
-
-        local predictResult = torch.Tensor(outputs:size());
-        predictResult:copy(outputs);
-        predictResult = predictResult:select(2,2):csub(predictResult:select(2,1)):squeeze(2);
-        predictResult = flat3DMatrix(predictResult);
-        local predictTarget = flat3DMatrix(targets);
 
         collectgarbage();
 
-        if(allResults)then
-            allResults = torch.cat(allResults,predictResult:double(),1);
-            allTargets = torch.cat(allTargets,predictTarget:double(),1);
-        else
-            allResults = predictResult:double();
-            allTargets = predictTarget:double();
-        end
-
-
+--        if(allResults)then
+--            allResults = torch.cat(allResults,predictResult:double(),1);
+--            allTargets = torch.cat(allTargets,predictTarget:double(),1);
+--        else
+--            allResults = predictResult:double();
+--            allTargets = predictTarget:double();
+--        end
     end
 
-    local rocData = {};
-    rocData['oneresult'] = allResults;
-    rocData['onetarget'] = allTargets;
+    confusion:updateValids()
+    print('Test accuracy:', confusion.totalValid * 100)
+    print(confusion);
+
+    if testLogger then
+        paths.mkdir(opt.save)
+        testLogger:add { firstClassAcc, secondClassAcc, confusion.valids[1], confusion.valids[2],optimState.learningRate, cost[#cost] }
+        testLogger:style { '+-', '+-' ,'+-', '+-','+-','+-'}
+        testLogger:plot()
+
+        local base64im
+        do
+            os.execute(('convert -density 200 %s/test.log.eps %s/test.png'):format(opt.save, opt.save))
+            os.execute(('openssl base64 -in %s/test.png -out %s/test.base64'):format(opt.save, opt.save))
+            local f = io.open(opt.save .. '/test.base64')
+            if f then base64im = f:read '*all' end
+        end
+
+        local file = io.open(opt.save .. '/report.html', 'w')
+        file:write(([[
+    <!DOCTYPE html>
+    <html>
+    <body>
+    <title>%s - %s</title>
+    <img src="data:image/png;base64,%s">
+    <h4>optimState:</h4>
+    <table>
+    ]]):format(opt.save, epoch, base64im))
+        for k, v in pairs(optimState) do
+            if torch.type(v) == 'number' then
+                file:write('<tr><td>' .. k .. '</td><td>' .. v .. '</td></tr>\n')
+            end
+        end
+        file:write '</table><pre>\n'
+        file:write(tostring(confusion) .. '\n')
+        file:write(tostring(model) .. '\n')
+        file:write '</pre></body></html>'
+        file:close()
+    end
+
+
+    --    local rocData = {};
+--    rocData['oneresult'] = allResults;
+--    rocData['onetarget'] = allTargets;
 
 --    local resultPath = paths.concat(opt.save,'rocData','fcnn_rocdata_epo_result'..epoch..'.mat');
 --    local targetPath = paths.concat(opt.save,'rocData','fcnn_rocdata_epo_target'..epoch..'.mat');
 --    print('=====> save roc data:'..resultPath);
-    paths.mkdir(paths.concat(opt.save,'rocData'));
+--    paths.mkdir(paths.concat(opt.save,'rocData'));
 
 --    matio.save(resultPath,rocData.oneresult);
 --    matio.save(targetPath,rocData.onetarget);
@@ -339,18 +323,18 @@ function test()
 --    mattorch.save(targetPath,rocData.onetarget);
 
 
-    local resultPath = paths.concat(opt.save,'rocData','fcnn_rocdata_epo_result'..epoch..'.h5');
-    local targetPath = paths.concat(opt.save,'rocData','fcnn_rocdata_epo_target'..epoch..'.h5');
+--    local resultPath = paths.concat(opt.save,'rocData','fcnn_rocdata_epo_result'..epoch..'.h5');
+--    local targetPath = paths.concat(opt.save,'rocData','fcnn_rocdata_epo_target'..epoch..'.h5');
+--
+--    local myFile = hdf5.open(resultPath, 'w')
+--    myFile:write('/result', rocData.oneresult);
+--    myFile:write('/target', rocData.onetarget);
+--    myFile:close()
 
-    local myFile = hdf5.open(resultPath, 'w')
-    myFile:write('/result', rocData.oneresult);
-    myFile:write('/target', rocData.onetarget);
-    myFile:close()
 
-
-    rocData = nil;
-    collectgarbage();
-    print('=====> finish saving prediction,start saving model...');
+--    rocData = nil;
+--    collectgarbage();
+--    print('=====> finish saving prediction,start saving model...');
     -- save model every 5 epochs
 --    if epoch % 5 == 0 then
         local filename = paths.concat(opt.save, 'model_'..epoch..'.net')
@@ -363,7 +347,7 @@ end
 
 for i = 1, opt.max_epoch do
     train()
-    if epoch % 4 == 3 then
+    if epoch % 2 == 0 then
         test()
     end
 end

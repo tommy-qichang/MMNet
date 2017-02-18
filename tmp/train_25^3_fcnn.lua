@@ -217,19 +217,16 @@ function train()
 --                targets:size(2)*targets:size(3)*targets:size(4))
 
 --
---        for pk,pv in pairs(parameters) do
---            if pk>=0 then
---                local gradParameter = gradParameters[pk];
---
---                cutorch.setDevice(pv:getDevice())
---                local feval = function(x)
---                    return f,gradParameter;
---                end
---                optim.sgd(feval, pv, optimStatesTable[pk]);
---
---            end
---
---        end
+        for pk,pv in pairs(parameters) do
+            if pk>=0 then
+                local gradParameter = gradParameters[pk];
+                cutorch.setDevice(pv:getDevice())
+                local feval = function(x)
+                    return f,gradParameter;
+                end
+                optim.sgd(feval, pv, optimStatesTable[pk]);
+            end
+        end
 
         cutorch.setDevice(1);
 

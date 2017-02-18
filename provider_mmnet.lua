@@ -83,7 +83,7 @@ function Provider:load()
     print ('==> finish load train data, combine it...');
 
     self.dataset.trainData.data = trData.trainData:permute(5,4,3,2,1):float();
-    self.dataset.trainData.label = trLabel.trLabel:permute(5,4,3,2,1):float();
+    self.dataset.trainData.label = trLabel.trLabel:permute(4,3,2,1):float();
 
 
     local teDataPath = 'preprocessing/clean_data/all_testimg_'..stamp..'.mat';
@@ -95,7 +95,7 @@ function Provider:load()
 
     print ('==> finish load test data, combine it...');
     self.dataset.testData.data = teData.testData:permute(5,4,3,2,1):float();
-    self.dataset.testData.label = teLabel.teLabel:permute(5,4,3,2,1):float();
+    self.dataset.testData.label = teLabel.teLabel:permute(4,3,2,1):float();
 
 
     self.dataset.trainData.label = self.dataset.trainData.label + 1;

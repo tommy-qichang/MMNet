@@ -167,17 +167,18 @@ local JT1 = nn.JoinTable(1,4)({C1,UP1})
 
 local U1 = conv_relu_layers({64,down=32},{32,bn=true,dropout=0.4},{3,4,4})(JT1)
 
-model = nn.gModule({input},{wrapGPU(nn.VolumetricConvolution(32,2, 1,1,1, 1,1,1,0,0,0),1)(U1)});
+mmnet = nn.gModule({input},{wrapGPU(nn.VolumetricConvolution(32,2, 1,1,1, 1,1,1,0,0,0),1)(U1)});
 
 
-graph.dot(model.fg,'vnet','vnet');
+graph.dot(mmnet.fg,'vnet','vnet');
 
 
 
-model = model:cuda();
+mmnet = mmnet:cuda();
 
-nn_init(model);
+nn_init(mmnet);
 collectgarbage();
+
 
 --[[input = torch.CudaTensor(1,1,40,200,200);
 result = model:forward(input);
@@ -207,7 +208,7 @@ collectgarbage(); getMemStats()
 --]]
 
 
-return model;
+return mmnet;
 
 
 
